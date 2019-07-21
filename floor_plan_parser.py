@@ -56,9 +56,8 @@ def room_detection(test_image):
     for i in range(0, len(room_contours)):
         x, y, w, h = cv2.boundingRect(room_contours[i])
         max_x, max_y, max_w, max_h =  cv2.boundingRect(floor_contour)
-        if w != width and h != height:
-            if w * h > max_w * max_h:
-                floor_contour = room_contours[i]
+        if w * h > max_w * max_h:
+            floor_contour = room_contours[i]
     room_contours.remove(floor_contour)
 
     # Get each room
@@ -69,13 +68,48 @@ def room_detection(test_image):
 
     rooms = {}
     for i in range(0, len(room_contours)):
-        name = input("\nEnter the name of the room displayed in room{}.png\n".format(i))
+        name = input("\nEnter the name of the room displayed in room{}.png\n".format(i)).upper()
         x, y, w, h = cv2.boundingRect(contours[i])
-        rooms.update({name:[x,y,w,h]})
+        sub_dict = {"X":x, "Y":y, "WIDTH":w, "HEIGHT":h, "CONTOUR":room_contours[i]}
+        rooms.update({name:sub_dict})
 
-    test = "this"
-    # cv2.drawContours(image, room_contours, -1, (0, 255, 0), 3)
-    # cv2.imwrite("test.png", image)
+    return image, rooms
+
+def change_rooms(image, rooms):
+    status = True
+    while status:
+        response = input("Would you like to make any alterations? Y/N\n>").upper()
+        status = True if response == "Y" else False
+        if status:
+            print("Available Rooms:")
+            for room in rooms.keys():
+                print("> ", room)
+
+            key = input("Which room would you like to change?").upper()
+            while key not in rooms.keys():
+                key = input("INVALID ROOM...TRY AGAIN\n"
+                            "Which room would you like to change?").upper()
+
+            action = input("Which dimension would you like to change? X/Y").upper()
+            while action not in ["X", "Y"]:
+                action = input("INVALID ROOM...TRY AGAIN\n"
+                               "Which dimension would you like to change? X/Y").upper()
+            dimension = "WIDTH" if action == "X" else "HEIGHT"
+
+            length = input("Current value of the dimension is {}.\n"
+                           "What would you like to change it to?".format(rooms[key][dimension]))
+
+            # _, contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+            #
+            # coef_y = img_orig.shape[0] / img_resized.shape[0]
+            # coef_x = img_orig.shape[1] / img_resized.shape[1]
+            #
+            # for contour in contours:
+            #     contour[:, :, 0] = contour[:, :, 0] * coef_x
+            #     contour[:, :, 1] = contour[:, :, 1] * coef_y
+            #
+            #     cv2.drawContours(img_orig, contour, -1, (0, 255, 0), 2)
+            test = "this"
 
 
 def main():
@@ -85,7 +119,8 @@ def main():
     save_image(threshold, "temp.png")
     new_image = line_closing("temp.png")
     opencv_write(new_image, "new_image.png")
-    room_detection("new_image.png")
+    image, rooms = room_detection("new_image.png")
+    change_rooms(image, rooms)
 
 main()
 
