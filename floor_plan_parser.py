@@ -1,7 +1,7 @@
 from PIL import Image, ImageFilter
 import cv2
 import numpy as np
-
+from copy import copy
 def convert_to_grey_scale(image):
     """Converts an opened Image object to black/white"""
     return image.convert("1")
@@ -99,11 +99,11 @@ def change_rooms(image, rooms):
                 key = input("INVALID ROOM...TRY AGAIN\n"
                             "Which room would you like to change?").upper()
 
-            action = input("Which dimension would you like to change? X/Y").upper()
-            while action not in ["X", "Y"]:
-                action = input("INVALID ROOM...TRY AGAIN\n"
+            axis = input("Which dimension would you like to change? X/Y").upper()
+            while axis not in ["X", "Y"]:
+                axis = input("INVALID ROOM...TRY AGAIN\n"
                                "Which dimension would you like to change? X/Y").upper()
-            dimension = "WIDTH" if action == "X" else "HEIGHT"
+            dimension = "WIDTH" if axis == "X" else "HEIGHT"
 
             length = int(input("Current value of the dimension is {} metres.\n"
                                "What would you like to change it to in cm?".format(rooms[key]["REAL_" + dimension])))
@@ -111,9 +111,22 @@ def change_rooms(image, rooms):
             before = int(rooms[key]["REAL_" + dimension])
             rooms[key].update({rooms[key]["REAL_" + dimension]: length})
             scale = length / before
-            new_contour = scale_contour(rooms[key]["CONTOUR"], scale)
 
-            x, y, w, h = cv2.boundingRect(new_contour)
+            new_contours = scale_contour(rooms[key]["CONTOUR"], scale, axis)
+            temp0, temp1 = copy(image), copy(image)
+            cv2.drawContours(temp0, new_contours, 0, (255, 255, 255), -1)
+            cv2.drawContours(temp0, new_contours, 0, (0, 0, 0), 5)
+            cv2.imwrite("option_a.jpg", temp0)
+
+            cv2.drawContours(temp1, new_contours, 1, (255, 255, 255), -1)
+            cv2.drawContours(temp1, new_contours, 1, (0, 0, 0), 5)
+            cv2.imwrite("option_b.jpg", temp1)
+
+            response = input("Which option would you like to keep? A or B?")
+            maintain = 0 if response.upper() == "A" else 1
+            image = temp0 if maintain == 0 else temp1
+
+            x, y, w, h = cv2.boundingRect(new_contours[maintain])
             sub_dict = {
                 "X": x,
                 "Y": y,
@@ -121,27 +134,71 @@ def change_rooms(image, rooms):
                 "HEIGHT": h,
                 "REAL_WIDTH": rooms[key]["REAL_WIDTH"],
                 "REAL_HEIGHT": rooms[key]["REAL_HEIGHT"],
-                "CONTOUR": new_contour}
+                "CONTOUR": new_contours[maintain]}
             rooms.update({key: sub_dict})
 
-            cv2.drawContours(image, [new_contour], -1, (255, 255, 255), -1)
-            cv2.drawContours(image, [new_contour], -1, (0, 0, 0), 3)
-            cv2.imwrite("new_image.jpg", image)
+            cv2.imwrite("new_image.jpg", eval("temp"+str(maintain)))
+#
+#     return cnt_scaled
 
-def scale_contour(cnt, scale):
-    M = cv2.moments(cnt)
+def scale_contour(contour, scale, axis):
+    """This method will shift the contour along the x or y axis by the scaling factor
+
+        args:
+            contour -- An ndarray contour object
+            scale -- The integer value representing the scaling factor
+            axis -- The axis in which the contour will be scaled in (X/Y)"""
+
+    # Get limits for x and y axis
+    x, y,= copy(contour[0][0][0]), copy(contour[0][0][1])
+    for vertex in contour:
+        x = vertex[0][0] if x < vertex[0][0] else x
+        y = vertex[0][1] if y < vertex[0][1] else y
+
+
+    # Normalize the contour
+    M = cv2.moments(contour)
     cx = int(M['m10']/M['m00'])
     cy = int(M['m01']/M['m00'])
+    normalized_contour = contour - [cx, cy]
 
-    cnt_norm = cnt - [cx, cy]
-    cnt_scaled = cnt_norm * scale
-    cnt_scaled = cnt_scaled + [cx, cy]
-    cnt_scaled = cnt_scaled.astype(np.int32)
+    # Scaled the contour
+    scaled_contour = copy(contour) # initialize
+    for i in range(0, len(scaled_contour)):
+        if axis.upper() == "X":
+            scaled_contour[i] = [(normalized_contour[i][0][0] * scale) + cx, normalized_contour[i][0][1] + cy]
+        elif axis.upper() == "Y":
+            scaled_contour[i] = [normalized_contour[i][0][0] + cx, (normalized_contour[i][0][1] * scale) + cy]
+        else:
+            print("Invalid axis..no operation completed")
+    scaled_contour = scaled_contour.astype(np.int32)
 
-    return cnt_scaled
+    # Get new bounds for x and y axis
+    new_x, new_y = copy(scaled_contour[0][0][0]), copy(scaled_contour[0][0][1])
+    for vertex in scaled_contour:
+        new_x = vertex[0][0] if new_x < vertex[0][0] else new_x
+        new_y = vertex[0][1] if new_y < vertex[0][1] else new_y
+
+    # Shift axis to match limits
+    shifted_contour = [copy(scaled_contour), copy(scaled_contour)] # initialize
+    if axis.upper() == "X":
+        shift = x - new_x
+        for i in range(0, len(scaled_contour)):
+            shifted_contour[0][i] = [shifted_contour[0][i][0][0] + shift, shifted_contour[0][i][0][1]]
+            shifted_contour[1][i] = [shifted_contour[1][i][0][0] - shift, shifted_contour[1][i][0][1]]
+
+    elif axis.upper() == "Y":
+        shift = y - new_y
+        for i in range(0, len(scaled_contour)):
+            shifted_contour[0][i] = [shifted_contour[0][i][0][0], shifted_contour[0][i][0][1] + shift]
+            shifted_contour[1][i] = [shifted_contour[1][i][0][0], shifted_contour[1][i][0][1] - shift]
+
+    return shifted_contour
+
+
 
 def main():
-    test_image = Image.open("test.png")
+    test_image = Image.open("demo.jpg")
     grey = convert_to_grey_scale(test_image)
     threshold = dilation(erosion(erosion(grey)))
     save_image(threshold, "temp.png")
