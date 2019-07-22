@@ -2,6 +2,9 @@ from PIL import Image, ImageFilter
 import cv2
 import numpy as np
 from copy import copy
+import os
+import shutil
+
 def convert_to_grey_scale(image):
     """Converts an opened Image object to black/white"""
     return image.convert("1")
@@ -20,19 +23,27 @@ def erosion(image):
     filtered = image.filter(filter)
     return filtered
 
-def line_closing(image_file):
+def line_closing(image_file): #color demo
     image = cv2.imread(image_file)
     edges = cv2.Canny(image, 75, 150)
-    # lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=160)
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=300)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=150)
     for line in lines:
         x1, y1, x2, y2 = line[0]
         cv2.line(image, (x1, y1), (x2, y2), (0, 0, 0), 5)
 
-    # kernel = np.ones((5, 5), np.uint8)
-    # dilate = cv2.dilate(image, kernel, iterations=2)
-    # return dilate
-    return image
+    kernel = np.ones((5, 5), np.uint8)
+    dilate = cv2.dilate(image, kernel, iterations=2)
+    return dilate
+
+# def line_closing(image_file): # basic demo
+#     image = cv2.imread(image_file)
+#     edges = cv2.Canny(image, 75, 150)
+#     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=300)
+#     for line in lines:
+#         x1, y1, x2, y2 = line[0]
+#         cv2.line(image, (x1, y1), (x2, y2), (0, 0, 0), 5)
+#
+#     return image
 
 def opencv_write(image, name):
     cv2.imwrite(name, image)
@@ -61,9 +72,12 @@ def room_detection(test_image):
     room_contours.remove(floor_contour)
 
     # Get each room image
+    path = os.getcwd() + "/rooms"
+    if not os.path.exists(path):
+        os.mkdir(path)
     for i in range(0, len(room_contours)):
         cv2.drawContours(image, room_contours, i, (0, 0, 255), 3)
-        cv2.imwrite("room{}.png".format(i), image)
+        cv2.imwrite(path + "//room{}.png".format(i), image)
         cv2.drawContours(image, room_contours, i, (0, 0, 0), 3) # restore original image
 
     rooms = {}
@@ -106,21 +120,24 @@ def change_rooms(image, rooms):
             dimension = "WIDTH" if axis == "X" else "HEIGHT"
 
             length = int(input("Current value of the dimension is {} metres.\n"
-                               "What would you like to change it to in cm?".format(rooms[key]["REAL_" + dimension])))
+                               "What would you like to change it to in metres?".format(rooms[key]["REAL_" + dimension])))
 
             before = int(rooms[key]["REAL_" + dimension])
             rooms[key].update({rooms[key]["REAL_" + dimension]: length})
             scale = length / before
 
+            path = os.getcwd() + "/options"
+            if not os.path.exists(path):
+                os.mkdir(path)
             new_contours = scale_contour(rooms[key]["CONTOUR"], scale, axis)
             temp0, temp1 = copy(image), copy(image)
             cv2.drawContours(temp0, new_contours, 0, (255, 255, 255), -1)
             cv2.drawContours(temp0, new_contours, 0, (0, 0, 0), 5)
-            cv2.imwrite("option_a.jpg", temp0)
+            cv2.imwrite(path + "//option_a.jpg", temp0)
 
             cv2.drawContours(temp1, new_contours, 1, (255, 255, 255), -1)
             cv2.drawContours(temp1, new_contours, 1, (0, 0, 0), 5)
-            cv2.imwrite("option_b.jpg", temp1)
+            cv2.imwrite(path + "//option_b.jpg", temp1)
 
             response = input("Which option would you like to keep? A or B?")
             maintain = 0 if response.upper() == "A" else 1
@@ -138,8 +155,6 @@ def change_rooms(image, rooms):
             rooms.update({key: sub_dict})
 
             cv2.imwrite("new_image.jpg", eval("temp"+str(maintain)))
-#
-#     return cnt_scaled
 
 def scale_contour(contour, scale, axis):
     """This method will shift the contour along the x or y axis by the scaling factor
@@ -154,7 +169,6 @@ def scale_contour(contour, scale, axis):
     for vertex in contour:
         x = vertex[0][0] if x < vertex[0][0] else x
         y = vertex[0][1] if y < vertex[0][1] else y
-
 
     # Normalize the contour
     M = cv2.moments(contour)
@@ -195,17 +209,21 @@ def scale_contour(contour, scale, axis):
 
     return shifted_contour
 
-
-
 def main():
-    test_image = Image.open("demo.jpg")
+    test_image = Image.open("color_demo.png")
     grey = convert_to_grey_scale(test_image)
     threshold = dilation(erosion(erosion(grey)))
     save_image(threshold, "temp.png")
     new_image = line_closing("temp.png")
-    opencv_write(new_image, "new_image.png")
-    image, rooms = room_detection("new_image.png")
+    opencv_write(new_image, "temp.png")
+    image, rooms = room_detection("temp.png")
     change_rooms(image, rooms)
+
+    # Clean up temporary files
+    path = os.getcwd()
+    os.remove(path + "//temp.png")
+    shutil.rmtree(path + "//rooms")
+    shutil.rmtree(path + "//options")
 
 main()
 
