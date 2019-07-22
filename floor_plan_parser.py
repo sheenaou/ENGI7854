@@ -23,16 +23,16 @@ def erosion(image):
 def line_closing(image_file):
     image = cv2.imread(image_file)
     edges = cv2.Canny(image, 75, 150)
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=160)
-    # lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=300)
+    # lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=160)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=300)
     for line in lines:
         x1, y1, x2, y2 = line[0]
         cv2.line(image, (x1, y1), (x2, y2), (0, 0, 0), 5)
 
-    kernel = np.ones((5, 5), np.uint8)
-    dilate = cv2.dilate(image, kernel, iterations=2)
-    return dilate
-    # return image
+    # kernel = np.ones((5, 5), np.uint8)
+    # dilate = cv2.dilate(image, kernel, iterations=2)
+    # return dilate
+    return image
 
 def opencv_write(image, name):
     cv2.imwrite(name, image)
@@ -60,7 +60,7 @@ def room_detection(test_image):
             floor_contour = room_contours[i]
     room_contours.remove(floor_contour)
 
-    # Get each room
+    # Get each room image
     for i in range(0, len(room_contours)):
         cv2.drawContours(image, room_contours, i, (0, 0, 255), 3)
         cv2.imwrite("room{}.png".format(i), image)
@@ -69,8 +69,17 @@ def room_detection(test_image):
     rooms = {}
     for i in range(0, len(room_contours)):
         name = input("\nEnter the name of the room displayed in room{}.png\n".format(i)).upper()
-        x, y, w, h = cv2.boundingRect(contours[i])
-        sub_dict = {"X":x, "Y":y, "WIDTH":w, "HEIGHT":h, "CONTOUR":room_contours[i]}
+        real_width = input("\nEnter the width (x dimension) of the room displayed in room{}.png in metres\n".format(i)).upper()
+        real_height = input("\nEnter the length (y dimension) displayed in room{}.png in metres\n".format(i)).upper()
+        x, y, w, h = cv2.boundingRect(room_contours[i])
+        sub_dict = {
+            "X":x,
+            "Y":y,
+            "WIDTH":w,
+            "HEIGHT":h,
+            "REAL_WIDTH":real_width,
+            "REAL_HEIGHT":real_height,
+            "CONTOUR":room_contours[i]}
         rooms.update({name:sub_dict})
 
     return image, rooms
@@ -96,24 +105,43 @@ def change_rooms(image, rooms):
                                "Which dimension would you like to change? X/Y").upper()
             dimension = "WIDTH" if action == "X" else "HEIGHT"
 
-            length = input("Current value of the dimension is {}.\n"
-                           "What would you like to change it to?".format(rooms[key][dimension]))
+            length = int(input("Current value of the dimension is {} metres.\n"
+                               "What would you like to change it to in cm?".format(rooms[key]["REAL_" + dimension])))
 
-            # _, contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-            #
-            # coef_y = img_orig.shape[0] / img_resized.shape[0]
-            # coef_x = img_orig.shape[1] / img_resized.shape[1]
-            #
-            # for contour in contours:
-            #     contour[:, :, 0] = contour[:, :, 0] * coef_x
-            #     contour[:, :, 1] = contour[:, :, 1] * coef_y
-            #
-            #     cv2.drawContours(img_orig, contour, -1, (0, 255, 0), 2)
-            test = "this"
+            before = int(rooms[key]["REAL_" + dimension])
+            rooms[key].update({rooms[key]["REAL_" + dimension]: length})
+            scale = length / before
+            new_contour = scale_contour(rooms[key]["CONTOUR"], scale)
 
+            x, y, w, h = cv2.boundingRect(new_contour)
+            sub_dict = {
+                "X": x,
+                "Y": y,
+                "WIDTH": w,
+                "HEIGHT": h,
+                "REAL_WIDTH": rooms[key]["REAL_WIDTH"],
+                "REAL_HEIGHT": rooms[key]["REAL_HEIGHT"],
+                "CONTOUR": new_contour}
+            rooms.update({key: sub_dict})
+
+            cv2.drawContours(image, [new_contour], -1, (255, 255, 255), -1)
+            cv2.drawContours(image, [new_contour], -1, (0, 0, 0), 3)
+            cv2.imwrite("new_image.jpg", image)
+
+def scale_contour(cnt, scale):
+    M = cv2.moments(cnt)
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+
+    cnt_norm = cnt - [cx, cy]
+    cnt_scaled = cnt_norm * scale
+    cnt_scaled = cnt_scaled + [cx, cy]
+    cnt_scaled = cnt_scaled.astype(np.int32)
+
+    return cnt_scaled
 
 def main():
-    test_image = Image.open("color_floor_plan.jpg")
+    test_image = Image.open("test.png")
     grey = convert_to_grey_scale(test_image)
     threshold = dilation(erosion(erosion(grey)))
     save_image(threshold, "temp.png")
