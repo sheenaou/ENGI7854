@@ -6,24 +6,49 @@ import os
 import shutil
 
 def convert_to_grey_scale(image):
-    """Converts an opened Image object to black/white"""
+    """Converts an opened Image object to black/white
+
+        args:
+            image - A Pillow image object
+    """
     return image.convert("1")
 
 def save_image(image, name):
+    """This function will save the Pillow image object to disk in a temporary location
+
+        args:
+            image - A Pillow image object
+            name - The name that the image will be saved under
+    """
     image.save(name)
     return
 
 def dilation(image):
+    """This function will perform the dilation image processing technique on the provided image
+
+        args:
+            image - A Pillow image object
+    """
     filter = ImageFilter.MinFilter(3) # Should be MaxFilter if white on black
     filtered = image.filter(filter)
     return filtered
 
 def erosion(image):
+    """This function will perform the erosion image processing technique on the provided image
+
+        args:
+            image - A Pillow image object
+    """
     filter = ImageFilter.MaxFilter(3) # Should be MinFilter if white on black
     filtered = image.filter(filter)
     return filtered
 
 def line_closing(image_file): #color demo
+    """This function will close any gaps found in the borders of the rooms
+
+        args:
+            image_file - The file path to the image
+    """
     image = cv2.imread(image_file)
     edges = cv2.Canny(image, 75, 150)
     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=150)
@@ -32,24 +57,29 @@ def line_closing(image_file): #color demo
         cv2.line(image, (x1, y1), (x2, y2), (0, 0, 0), 5)
 
     kernel = np.ones((5, 5), np.uint8)
-    dilate = cv2.dilate(image, kernel, iterations=2)
-    return dilate
+    new_image = cv2.dilate(image, kernel, iterations=2)
+    return new_image
 
-# def line_closing(image_file): # basic demo
-#     image = cv2.imread(image_file)
-#     edges = cv2.Canny(image, 75, 150)
-#     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, maxLineGap=300)
-#     for line in lines:
-#         x1, y1, x2, y2 = line[0]
-#         cv2.line(image, (x1, y1), (x2, y2), (0, 0, 0), 5)
-#
-#     return image
 
 def opencv_write(image, name):
+    """This function will save the OpenCV image to disk
+
+        args:
+            image - A OpenCV image object
+            name - The name that the image will be saved under
+    """
     cv2.imwrite(name, image)
 
-def room_detection(test_image):
-    image = cv2.imread(test_image)
+def room_detection(base_image):
+    """This function will detect all the rooms in the floor plan and generate a set of image
+    highlighting a different room that will be saved to disk. It will also collect details
+    about each room from the user via command line
+
+        args:
+            base_image - The file path to an image which has already had line closing
+    """
+    # Find all the contours in the base image
+    image = cv2.imread(base_image)
     height, width, channels = image.shape
     im_bw = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     thresh, im_bw = cv2.threshold(im_bw, 127, 255, 0)
@@ -62,7 +92,7 @@ def room_detection(test_image):
         if w != width and h != height:
             room_contours.append(contours[i])
 
-    # Find the Contours of the entire floor
+    # Find the contours of the entire floor
     floor_contour = None
     for i in range(0, len(room_contours)):
         x, y, w, h = cv2.boundingRect(room_contours[i])
@@ -71,7 +101,7 @@ def room_detection(test_image):
             floor_contour = room_contours[i]
     room_contours.remove(floor_contour)
 
-    # Get each room image
+    # Generate each room image
     path = os.getcwd() + "/rooms"
     if not os.path.exists(path):
         os.mkdir(path)
@@ -80,6 +110,7 @@ def room_detection(test_image):
         cv2.imwrite(path + "//room{}.png".format(i), image)
         cv2.drawContours(image, room_contours, i, (0, 0, 0), 3) # restore original image
 
+    # Collect room information from the user
     rooms = {}
     for i in range(0, len(room_contours)):
         name = input("\nEnter the name of the room displayed in room{}.png\n".format(i)).upper()
@@ -99,6 +130,13 @@ def room_detection(test_image):
     return image, rooms
 
 def change_rooms(image, rooms):
+    """This function provides a command line interface to the user where they can modify the floor plan as desired.
+    It responsible for generate two possible images for the user to chose from and persisting the chosen option.
+
+        args:
+            image - An OpenCV image object
+            rooms - A dictionary containing information collected about each room
+    """
     status = True
     while status:
         response = input("Would you like to make any alterations? Y/N\n>").upper()
@@ -122,13 +160,16 @@ def change_rooms(image, rooms):
             length = int(input("Current value of the dimension is {} metres.\n"
                                "What would you like to change it to in metres?".format(rooms[key]["REAL_" + dimension])))
 
+            # Calculate scaling factor
             before = int(rooms[key]["REAL_" + dimension])
-            rooms[key].update({rooms[key]["REAL_" + dimension]: length})
             scale = length / before
 
+            # Generate temporary directory to store images
             path = os.getcwd() + "/options"
             if not os.path.exists(path):
                 os.mkdir(path)
+
+            # Generate the two option images
             new_contours = scale_contour(rooms[key]["CONTOUR"], scale, axis)
             temp0, temp1 = copy(image), copy(image)
             cv2.drawContours(temp0, new_contours, 0, (255, 255, 255), -1)
@@ -139,20 +180,30 @@ def change_rooms(image, rooms):
             cv2.drawContours(temp1, new_contours, 1, (0, 0, 0), 5)
             cv2.imwrite(path + "//option_b.jpg", temp1)
 
-            response = input("Which option would you like to keep? A or B?")
-            maintain = 0 if response.upper() == "A" else 1
-            image = temp0 if maintain == 0 else temp1
+            response = input("Which option would you like to keep? A, B, or None?")
+            if response.upper() == "A":
+                maintain = 0
+                image = temp0
+                rooms[key].update({rooms[key]["REAL_" + dimension]: length})
+            elif response.upper() == "B":
+                maintain = 1
+                image = temp1
+                rooms[key].update({rooms[key]["REAL_" + dimension]: length})
+            else:
+                maintain = None
 
-            x, y, w, h = cv2.boundingRect(new_contours[maintain])
-            sub_dict = {
-                "X": x,
-                "Y": y,
-                "WIDTH": w,
-                "HEIGHT": h,
-                "REAL_WIDTH": rooms[key]["REAL_WIDTH"],
-                "REAL_HEIGHT": rooms[key]["REAL_HEIGHT"],
-                "CONTOUR": new_contours[maintain]}
-            rooms.update({key: sub_dict})
+            # Persist information if necessary
+            if maintain is not None:
+                x, y, w, h = cv2.boundingRect(new_contours[maintain])
+                sub_dict = {
+                    "X": x,
+                    "Y": y,
+                    "WIDTH": w,
+                    "HEIGHT": h,
+                    "REAL_WIDTH": rooms[key]["REAL_WIDTH"],
+                    "REAL_HEIGHT": rooms[key]["REAL_HEIGHT"],
+                    "CONTOUR": new_contours[maintain]}
+                rooms.update({key: sub_dict})
 
             cv2.imwrite("new_image.jpg", eval("temp"+str(maintain)))
 
@@ -162,7 +213,8 @@ def scale_contour(contour, scale, axis):
         args:
             contour -- An ndarray contour object
             scale -- The integer value representing the scaling factor
-            axis -- The axis in which the contour will be scaled in (X/Y)"""
+            axis -- The axis in which the contour will be scaled in (X/Y)
+    """
 
     # Get limits for x and y axis
     x, y,= copy(contour[0][0][0]), copy(contour[0][0][1])
@@ -210,13 +262,20 @@ def scale_contour(contour, scale, axis):
     return shifted_contour
 
 def main():
+    # Create standard floor plan skeleton
     test_image = Image.open("color_demo.png")
     grey = convert_to_grey_scale(test_image)
     threshold = dilation(erosion(erosion(grey)))
     save_image(threshold, "temp.png")
+
+    # Perform line closing operation
     new_image = line_closing("temp.png")
     opencv_write(new_image, "temp.png")
+
+    # Room identification and segmentation
     image, rooms = room_detection("temp.png")
+
+    # Room modification
     change_rooms(image, rooms)
 
     # Clean up temporary files
